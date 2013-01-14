@@ -44,12 +44,16 @@ public:
     SoftapController();
     virtual ~SoftapController();
 
+    int startDriver(char *iface);
+    int stopDriver(char *iface);
     int startSoftap();
     int stopSoftap();
     bool isSoftapStarted();
     int setSoftap(int argc, char *argv[]);
     int fwReloadSoftap(int argc, char *argv[]);
 private:
+    char mBuf[SOFTAP_MAX_BUFFER_SIZE];
+    char mIface[IFNAMSIZ];
     pid_t mPid;
     void generatePsk(char *ssid, char *passphrase, char *psk);
 };
