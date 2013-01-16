@@ -44,6 +44,7 @@ extern "C" int ifc_init();
 extern "C" int ifc_up(const char *name);
 
 #include "private/android_filesystem_config.h"
+#include <hardware_legacy/power.h>
 #include "cutils/properties.h"
 #ifdef HAVE_LIBC_SYSTEM_PROPERTIES
 #define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
@@ -63,6 +64,8 @@ static const char HOSTAPD_PROP_NAME[]      = "init.svc.hostapd";
 #define WIFI_DEFAULT_CHANNEL    6
 #define WIFI_DEFAULT_MAX_STA    8
 #define WIFI_DEFAULT_PREAMBLE   0
+
+#define AP_WAKE_LOCK            "hotspot_wake_lock"
 
 static struct wpa_ctrl *ctrl_conn;
 static char iface[PROPERTY_VALUE_MAX];
@@ -459,7 +462,7 @@ int SoftapController::startDriver(char *iface) {
 
 #ifdef WIFI_MODULE_PATH
     rmmod("ar6000");
-	ret = insmod(WIFI_MODULE_PATH, "ifname=athap0 wowenable=1");
+	ret = insmod(WIFI_MODULE_PATH, "ifname=athap0 wowenable=0");
 	sleep(1);
 #else
 	set_wifi_power(0);
@@ -630,6 +633,15 @@ int SoftapController::startSoftap() {
            usleep(AP_BSS_START_DELAY);
         }
     }
+
+    /*
+     * WoW does not appear to work correctly in AP mode.
+     * Just disable it (see startDriver) and stay awake.
+     */
+    if (!ret) {
+        acquire_wake_lock(PARTIAL_WAKE_LOCK, AP_WAKE_LOCK);
+    }
+
     return ret;
 
 }
@@ -682,6 +694,7 @@ int SoftapController::stopSoftap() {
         close(fd);
     }
 #endif
+    release_wake_lock(AP_WAKE_LOCK);
     usleep(AP_BSS_STOP_DELAY);
     return ret;
 }
