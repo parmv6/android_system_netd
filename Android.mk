@@ -50,6 +50,7 @@ else ifeq ($(WIFI_DRIVER_MODULE_NAME),ar6000)
   LOCAL_C_INCLUDES += external/wpa_supplicant_6/wpa_supplicant/src/common
   LOCAL_SRC_FILES += SoftapControllerATH.cpp
   LOCAL_SHARED_LIBRARIES := $(LOCAL_SHARED_LIBRARIES) libwpa_client
+  LOCAL_CFLAGS += -DBLADE_SOFTAP
 else
   LOCAL_SRC_FILES += SoftapController.cpp
 endif
