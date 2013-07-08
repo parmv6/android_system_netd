@@ -60,6 +60,10 @@ static const char HOSTAPD_CONFIG_TEMPLATE[]= "/system/etc/wifi/hostapd.conf";
 static const char HOSTAPD_CONFIG_FILE[]    = "/data/misc/wifi/hostapd.conf";
 static const char HOSTAPD_PROP_NAME[]      = "init.svc.hostapd";
 
+#ifdef WIFI_DRIVER_MODULE_AP_ARG
+static const char DRIVER_MODULE_AP_ARG[] = WIFI_DRIVER_MODULE_AP_ARG;
+#endif
+
 #define WIFI_DEFAULT_BI         100         /* in TU */
 #define WIFI_DEFAULT_DTIM       1           /* in beacon */
 #define WIFI_DEFAULT_CHANNEL    6
@@ -454,7 +458,11 @@ int SoftapController::startDriver(const char *iface) {
 
 #ifdef WIFI_MODULE_PATH
     rmmod("ar6000");
+#ifdef WIFI_DRIVER_MODULE_AP_ARG
+	ret = insmod(WIFI_MODULE_PATH, DRIVER_MODULE_AP_ARG);
+#else
 	ret = insmod(WIFI_MODULE_PATH, "ifname=athap0 wowenable=0");
+#endif
 	sleep(1);
 #else
 	set_wifi_power(0);
