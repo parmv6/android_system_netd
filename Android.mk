@@ -47,7 +47,7 @@ else ifeq ($(WIFI_DRIVER_MODULE_NAME),ar6000)
   ifneq ($(WIFI_DRIVER_MODULE_PATH),rfkill)
     LOCAL_CFLAGS += -DWIFI_MODULE_PATH=\"$(WIFI_DRIVER_MODULE_PATH)\"
   endif
-  LOCAL_C_INCLUDES += external/wpa_supplicant_6/wpa_supplicant/src/common
+  LOCAL_C_INCLUDES += external/wpa_supplicant_8/src/common
   LOCAL_SRC_FILES += SoftapControllerATH.cpp
   LOCAL_SHARED_LIBRARIES := $(LOCAL_SHARED_LIBRARIES) libwpa_client
   LOCAL_CFLAGS += -DBLADE_SOFTAP

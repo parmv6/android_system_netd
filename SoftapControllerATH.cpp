@@ -35,6 +35,7 @@
 #include <cutils/log.h>
 
 #include "SoftapController.h"
+#include "ResponseCode.h"
 
 extern "C" int delete_module(const char *, unsigned int);
 extern "C" int init_module(void * , unsigned int, const char *);
@@ -407,19 +408,14 @@ static int rmmod(const char *modname)
 	return ret;
 }
 
-SoftapController::SoftapController() {
-    mPid = 0;
-    mSock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (mSock < 0)
-        ALOGE("Failed to open socket");
+SoftapController::SoftapController()
+    : mPid(0) {
     memset(mIface, 0, sizeof(mIface));
     mProfileValid = 0;
     ctrl_conn = NULL;
 }
 
 SoftapController::~SoftapController() {
-    if (mSock >= 0)
-        close(mSock);
 }
 
 #if 0
@@ -445,16 +441,12 @@ int SoftapController::getPrivFuncNum(char *iface, const char *fname) {
 }
 #endif
 
-int SoftapController::startDriver(char *iface) {
+int SoftapController::startDriver(const char *iface) {
 	struct iwreq wrq;
 	int fnum, ret;
 
 	ALOGD("startDriver()");
 
-	if (mSock < 0) {
-		ALOGE("Softap driver start - failed to open socket");
-		return -1;
-	}
 	if (!iface || (iface[0] == '\0')) {
 		ALOGD("Softap driver start - wrong interface");
 		iface = mIface;
@@ -511,17 +503,13 @@ int SoftapController::startDriver(char *iface) {
 	return ret;
 }
 
-int SoftapController::stopDriver(char *iface) {
+int SoftapController::stopDriver(const char *iface) {
 	struct iwreq wrq;
 	int fnum, ret;
 
 	ALOGD("stopDriver()");
 
 	ALOGE("softapcontroller->stopDriver");
-	if (mSock < 0) {
-		ALOGE("Softap driver stop - failed to open socket");
-		return -1;
-	}
 	if (!iface || (iface[0] == '\0')) {
 		ALOGD("Softap driver stop - wrong interface");
 		iface = mIface;
@@ -568,17 +556,13 @@ int SoftapController::stopDriver(char *iface) {
 int SoftapController::startSoftap() {
     struct iwreq wrq;
     pid_t pid = 1;
-    int fnum, ret = 0;
+    int fnum, ret;
 
-	ALOGD("startSoftap()");
+    ALOGD("startSoftap()");
 
     if (mPid) {
-        ALOGE("Softap already started");
-        return 0;
-    }
-    if (mSock < 0) {
-        ALOGE("Softap startap - failed to open socket");
-        return -1;
+        ALOGE("SoftAP is already running");
+        return ResponseCode::SoftapStatusResult;
     }
 
     if (!mPid) {
@@ -594,9 +578,8 @@ int SoftapController::startSoftap() {
     /* system("iwpriv wl0.1 AP_BSS_START"); */
     if (!pid) {
         /* start hostapd */
-        return ret;
+        return ResponseCode::ServiceStartFailed;
     } else {
-
         ifc_init();
         ifc_up("athap0");
         sleep(1); /* Give the driver time to settle... */
@@ -604,8 +587,8 @@ int SoftapController::startSoftap() {
         ret = wifi_start_hostapd();
         if (ret < 0) {
             ALOGE("Softap startap - starting hostapd fails");
-	        stopDriver("athap0");
-            return -1;
+            stopDriver("athap0");
+            return ResponseCode::ServiceStartFailed;
         }
 
         sched_yield();
@@ -614,7 +597,7 @@ int SoftapController::startSoftap() {
         ret = wifi_connect_to_hostapd();
         if (ret < 0) {
             ALOGE("Softap startap - connect to hostapd fails");
-            return -1;
+            return ResponseCode::ServiceStartFailed;
         }
 
         /* Indicate interface up */
@@ -622,7 +605,7 @@ int SoftapController::startSoftap() {
         ret = wifi_load_profile(true);
         if (ret < 0) {
             ALOGE("Softap startap - load new configuration fails");
-            return -1;
+            return ResponseCode::ServiceStartFailed;
         }
         if (ret) {
             ALOGE("Softap startap - failed: %d", ret);
@@ -642,7 +625,7 @@ int SoftapController::startSoftap() {
         acquire_wake_lock(PARTIAL_WAKE_LOCK, AP_WAKE_LOCK);
     }
 
-    return ret;
+    return ResponseCode::SoftapStatusResult;
 
 }
 
@@ -650,15 +633,11 @@ int SoftapController::stopSoftap() {
     struct iwreq wrq;
     int fnum, ret;
 
-	ALOGD("stopSoftap()");
+    ALOGD("stopSoftap()");
 
     if (mPid == 0) {
-        ALOGE("Softap already stopped");
-        return 0;
-    }
-    if (mSock < 0) {
-        ALOGE("Softap stopap - failed to open socket");
-        return -1;
+        ALOGE("SoftAP is not running");
+        return ResponseCode::SoftapStatusResult;
     }
     wifi_close_hostapd_connection();
     ret = wifi_stop_hostapd();
@@ -696,11 +675,11 @@ int SoftapController::stopSoftap() {
 #endif
     release_wake_lock(AP_WAKE_LOCK);
     usleep(AP_BSS_STOP_DELAY);
-    return ret;
+    return ResponseCode::SoftapStatusResult;
 }
 
 bool SoftapController::isSoftapStarted() {
-    return (mPid != 0 ? true : false);
+    return (mPid != 0);
 }
 
 /*
@@ -723,22 +702,17 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
     char buf[80];
     int len;
 
-	ALOGD("setSoftap()");
+    ALOGD("setSoftap()");
 
-    if (mSock < 0) {
-        ALOGE("Softap set - failed to open socket");
-        return -1;
-    }
     if (argc < 4) {
         ALOGE("Softap set - missing arguments");
-        return -1;
+        return ResponseCode::CommandSyntaxError;
     }
-    ret = 0;
 
     fd = open(HOSTAPD_CONFIG_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0660);
     if (fd < 0) {
         ALOGE("Cannot create \"%s\": %s", HOSTAPD_CONFIG_FILE, strerror(errno));
-        return -1;
+        return ResponseCode::OperationFailed;
     }
 
     len = snprintf(buf, sizeof(buf), "interface=athap0\n");
@@ -798,16 +772,16 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
     ret = wifi_load_profile(isSoftapStarted());
     if (ret < 0) {
         ALOGE("Softap set - load new configuration fails");
-        return -1;
+        return ResponseCode::OperationFailed;
     }
     if (ret) {
         ALOGE("Softap set - failed: %d", ret);
+        return ResponseCode::OperationFailed;
     }
-    else {
-        ALOGD("Softap set - Ok");
-        usleep(AP_SET_CFG_DELAY);
-    }
-    return ret;
+
+    ALOGD("Softap set - Ok");
+    usleep(AP_SET_CFG_DELAY);
+    return ResponseCode::SoftapStatusResult;
 }
 
 /*
@@ -818,26 +792,15 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
 int SoftapController::fwReloadSoftap(int argc, char *argv[])
 {
     struct iwreq wrq;
-    int fnum, ret, i = 0;
+    int fnum, i = 0;
     char *iface;
 
-	ALOGD("fwReloadSoftap()");
+    ALOGD("fwReloadSoftap()");
 
-    if (mSock < 0) {
-        ALOGE("Softap fwrealod - failed to open socket");
-        return -1;
-    }
     if (argc < 4) {
         ALOGE("Softap fwreload - missing arguments");
-        return -1;
+        return ResponseCode::CommandSyntaxError;
     }
-    ret = 0;
     ALOGD("Softap fwReload - Ok");
-    return ret;
-}
-
-int SoftapController::clientsSoftap(char **retbuf)
-{
-    // XXX: unimplemented
-    return -1;
+    return ResponseCode::SoftapStatusResult;
 }
