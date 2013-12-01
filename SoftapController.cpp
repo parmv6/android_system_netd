@@ -209,6 +209,9 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
  */
 int SoftapController::fwReloadSoftap(int argc, char *argv[])
 {
+#ifdef WLAN_NO_FWRELOAD
+    return 0;
+#endif
     int i = 0;
     char *fwpath = NULL;
 
