@@ -692,88 +692,92 @@ bool SoftapController::isSoftapStarted() {
 
 /*
  * Arguments:
- *      argv[2] - wlan interface
- *      argv[3] - SSID
- *	argv[4] - Security
- *	argv[5] - Key
- *	argv[6] - Channel
- *	argv[7] - Preamble
- *	argv[8] - Max SCB
+ *  argv[2] - wlan interface
+ *  argv[3] - SSID
+ *  argv[4] - Broadcast/Hidden
+ *  argv[5] - Channel
+ *  argv[6] - Security
+ *  argv[7] - Key
  */
 int SoftapController::setSoftap(int argc, char *argv[]) {
-    unsigned char psk[SHA256_DIGEST_LENGTH];
     char psk_str[2*SHA256_DIGEST_LENGTH+1];
-    struct iwreq wrq;
-    int fnum, ret, i = 0;
-    char *ssid;
+    int ret = ResponseCode::SoftapStatusResult;
+    int i = 0;
     int fd;
-    char buf[80];
-    int len;
+    int hidden = 0;
+    int channel = AP_CHANNEL_DEFAULT;
+    char *wbuf = NULL;
+    char *fbuf = NULL;
 
-    ALOGD("setSoftap()");
-
-    if (argc < 4) {
-        ALOGE("Softap set - missing arguments");
+    if (argc < 5) {
+        ALOGE("Softap set is missing arguments. Please use:");
+        ALOGE("softap <wlan iface> <SSID> <hidden/broadcast> <channel> <wpa2?-psk|open> <passphrase>");
         return ResponseCode::CommandSyntaxError;
     }
 
-    fd = open(HOSTAPD_CONFIG_FILE, O_CREAT|O_WRONLY|O_TRUNC, 0660);
+    if (strcmp("athap0", argv[2])) {
+        ALOGW("Softap set 2nd arg is not athap0. forcing");
+    }
+
+    if (!strcasecmp(argv[4], "hidden"))
+        hidden = 1;
+
+    if (argc >= 5) {
+        channel = atoi(argv[5]);
+        if (channel <= 0)
+            channel = AP_CHANNEL_DEFAULT;
+    }
+
+    asprintf(&wbuf, "interface=%s\nctrl_interface="
+            "/data/misc/wifi/hostapd\nssid=%s\nchannel_num=%d\n"
+            "auth_algs=1\nmax_num_sta=%d\nbeacon_int=%d\ndtim_period=%d\n",
+            "athap0", argv[3], channel,
+            WIFI_DEFAULT_MAX_STA, WIFI_DEFAULT_BI, WIFI_DEFAULT_DTIM);
+
+    if (argc > 7) {
+        if (!strcmp(argv[6], "wpa2-psk")) {
+            asprintf(&fbuf, "%swpa=2\nwpa_key_mgmt=WPA-PSK\nwpa_pairwise=CCMP\nwpa_passphrase=%s\n", wbuf, argv[7]);
+        } else if (!strcmp(argv[6], "open")) {
+            asprintf(&fbuf, "%s", wbuf);
+        }
+    } else if (argc > 6) {
+        if (!strcmp(argv[6], "open")) {
+            asprintf(&fbuf, "%s", wbuf);
+        }
+    } else {
+        asprintf(&fbuf, "%s", wbuf);
+    }
+
+    fd = open(HOSTAPD_CONFIG_FILE, O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW, 0660);
     if (fd < 0) {
-        ALOGE("Cannot create \"%s\": %s", HOSTAPD_CONFIG_FILE, strerror(errno));
+        ALOGE("Cannot update \"%s\": %s", HOSTAPD_CONFIG_FILE, strerror(errno));
+        free(wbuf);
+        free(fbuf);
+        return ResponseCode::OperationFailed;
+    }
+    if (write(fd, fbuf, strlen(fbuf)) < 0) {
+        ALOGE("Cannot write to \"%s\": %s", HOSTAPD_CONFIG_FILE, strerror(errno));
+        ret = ResponseCode::OperationFailed;
+    }
+    free(wbuf);
+    free(fbuf);
+
+    /* Note: apparently open can fail to set permissions correctly at times */
+    if (fchmod(fd, 0660) < 0) {
+        ALOGE("Error changing permissions of %s to 0660: %s",
+                HOSTAPD_CONFIG_FILE, strerror(errno));
+        close(fd);
+        unlink(HOSTAPD_CONFIG_FILE);
         return ResponseCode::OperationFailed;
     }
 
-    len = snprintf(buf, sizeof(buf), "interface=athap0\n");
-    write(fd, buf, len);
-    len = snprintf(buf, sizeof(buf), "ctrl_interface=%s\n",IFACE_DIR);
-    write(fd, buf, len);
-    if (argc > 3) {
-        len = snprintf(buf, sizeof(buf), "ssid=%s\n",argv[3]);
-    } else {
-        len = snprintf(buf, sizeof(buf), "ssid=AndroidAP\n");
+    if (fchown(fd, AID_SYSTEM, AID_WIFI) < 0) {
+        ALOGE("Error changing group ownership of %s to %d: %s",
+                HOSTAPD_CONFIG_FILE, AID_WIFI, strerror(errno));
+        close(fd);
+        unlink(HOSTAPD_CONFIG_FILE);
+        return ResponseCode::OperationFailed;
     }
-    /* set open auth */
-    write(fd, buf, len);
-    len = snprintf(buf, sizeof(buf), "auth_algs=1\n");
-    write(fd, buf, len);
-    len = snprintf(buf, sizeof(buf), "max_num_sta=%d\n",WIFI_DEFAULT_MAX_STA);
-    write(fd, buf, len);
-    len = snprintf(buf, sizeof(buf), "beacon_int=%d\n",WIFI_DEFAULT_BI);
-    write(fd, buf, len);
-    len = snprintf(buf, sizeof(buf), "dtim_period=%d\n",WIFI_DEFAULT_DTIM);
-    write(fd, buf, len);
-    if (argc > 4) {
-        if (strncmp(argv[4], "wpa2-psk", 8) == 0) {
-            len = snprintf(buf, sizeof(buf), "wpa=2\n");
-            write(fd, buf, len);
-            len = snprintf(buf, sizeof(buf), "wpa_key_mgmt=WPA-PSK\n");
-            write(fd, buf, len);
-            len = snprintf(buf, sizeof(buf), "wpa_pairwise=CCMP\n");
-            write(fd, buf, len);
-            if (argc > 5) {
-                len = snprintf(buf, sizeof(buf), "wpa_passphrase=%s\n",argv[5]);
-                write(fd, buf, len);
-            } else {
-                len = snprintf(buf, sizeof(buf), "wpa_passphrase=12345678\n");
-                write(fd, buf, len);
-            }
-        }
-    }
-    if (argc > 6) {
-        len = snprintf(buf, sizeof(buf), "channel_num=%s\n",argv[6]);
-        write(fd, buf, len);
-    } else {
-        len = snprintf(buf, sizeof(buf), "channel_num=%d\n",WIFI_DEFAULT_CHANNEL);
-        write(fd, buf, len);
-    }
-    /*if (argc > 7) {
-        len = snprintf(buf, sizeof(buf), "preamble=%s\n",argv[7]);
-        write(fd, buf, len);
-    } else {
-        len = snprintf(buf, sizeof(buf), "preamble=%d\n",WIFI_DEFAULT_PREAMBLE);
-        write(fd, buf, len);
-    }*/
-    mProfileValid = 1;
 
     close(fd);
 
