@@ -1070,6 +1070,12 @@ int CommandListener::SoftapCmd::runCommand(SocketClient *cli,
         rc = sSoftapCtrl->stopSoftap();
     } else if (!strcmp(argv[1], "fwreload")) {
         rc = sSoftapCtrl->fwReloadSoftap(argc, argv);
+#ifdef LEGACY_SOFTAP
+    } else if (!strcmp(argv[1], "start")) {
+        rc = sSoftapCtrl->startDriver(argv[2]);
+    } else if (!strcmp(argv[1], "stop")) {
+        rc = sSoftapCtrl->stopDriver(argv[2]);
+#endif
     } else if (!strcmp(argv[1], "status")) {
         asprintf(&retbuf, "Softap service %s running",
                  (sSoftapCtrl->isSoftapStarted() ? "is" : "is not"));
